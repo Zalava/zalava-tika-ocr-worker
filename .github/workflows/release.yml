@@ -1,0 +1,60 @@
+name: Release OCR worker
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ocr-worker-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      packages: write
+    env:
+      DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate release source and version
+        shell: bash
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+[.][0-9]+[.][0-9]+$ ]]
+          git fetch origin "$DEFAULT_BRANCH"
+          git merge-base --is-ancestor HEAD "origin/$DEFAULT_BRANCH"
+          printf 'IMAGE=ghcr.io/%s\n' "${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Test and build
+        shell: bash
+        run: |
+          python -m unittest -v
+          docker build --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.revision=$GITHUB_SHA" \
+            --label "org.opencontainers.image.version=${GITHUB_REF_NAME#v}" \
+            --tag "$IMAGE:${GITHUB_REF_NAME#v}" .
+          bash scripts/verify-image.sh "$IMAGE:${GITHUB_REF_NAME#v}"
+          sh scripts/generate-sbom.sh "$IMAGE:${GITHUB_REF_NAME#v}" > worker.spdx.json
+          python -m json.tool worker.spdx.json > /dev/null
+      - name: Publish the verified image
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          ref="$IMAGE:${GITHUB_REF_NAME#v}"
+          docker push "$ref"
+          digest="$(docker buildx imagetools inspect "$ref" --format '{{json .Manifest}}' | jq -er '.digest')"
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          printf '%s@%s\n' "$IMAGE" "$digest" > image-reference.txt
+          docker pull "$IMAGE@$digest"
+          test "$(docker image inspect "$ref" --format '{{.Id}}')" = "$(docker image inspect "$IMAGE@$digest" --format '{{.Id}}')"
+          gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes worker.spdx.json image-reference.txt

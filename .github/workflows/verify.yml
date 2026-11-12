@@ -1,0 +1,13 @@
+name: verify
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m unittest -v
+      - run: docker build --tag sea-ocr-worker:ci .
+      - run: bash scripts/verify-image.sh sea-ocr-worker:ci
