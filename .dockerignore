@@ -1,3 +1,4 @@
 **
 !Dockerfile
 !service.py
+!managed_ocr.py
