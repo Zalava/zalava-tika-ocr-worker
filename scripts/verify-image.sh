@@ -37,3 +37,22 @@ assert result["pages"] == 1, result
 assert set(result["languages"].split("+")) == {"eng", "spa", "cat"}, result
 print("Image-only PDF OCR passed with networking disabled.")
 ' < "$root/fixtures/scanned-invoice.pdf"
+
+fixture="$root/fixtures/scanned-invoice.pdf"
+{
+  printf '{"length":%s,"mediaType":"application/pdf","languages":"eng+spa+cat"}\n' "$(wc -c < "$fixture")"
+  cat "$fixture"
+} | docker exec -i "$container" python /app/managed_ocr.py | python3 -c '
+import json
+import sys
+
+result = json.load(sys.stdin)
+assert "HOUSEHOLD INVOICE 89 EUROS" in " ".join(result["text"].split()), result
+assert result["pages"] == 1, result
+assert set(result["languages"].split("+")) == {"eng", "spa", "cat"}, result
+print("Managed stdin OCR passed with networking disabled.")
+'
+
+printf '{"length":10485761,"mediaType":"application/pdf"}\n' |
+  docker exec -i "$container" python /app/managed_ocr.py |
+  python3 -c 'import json, sys; assert json.load(sys.stdin)["code"] == "INPUT_LIMIT_EXCEEDED"'

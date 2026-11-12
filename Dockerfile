@@ -11,8 +11,8 @@ RUN apt-get update \
 
 RUN useradd --system --uid 10001 --create-home seaocr
 WORKDIR /app
-COPY --chown=seaocr:seaocr service.py /app/service.py
-RUN chmod 0555 /app/service.py
+COPY --chown=seaocr:seaocr service.py managed_ocr.py /app/
+RUN chmod 0555 /app/service.py /app/managed_ocr.py
 USER 10001:10001
 EXPOSE 8080
 ENV SEA_OCR_PORT=8080
